@@ -1,0 +1,244 @@
+---
+title: "Machine Learning Project"
+author: "Javier Eslava-Schmalbach"
+date: "8/11/2018"
+output: html_document
+---
+
+### Background from the assignment
+
+"Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset)"
+
+### Objective
+ The goal of this project is to predict the manner in which tech geeks did the exercise using the "classe" variable as the outcome to be predicted
+
+### Methodology
+Databases will be downloaded from url addresses provided in the assignment: one for training and getting the best model and the second for predicting the behaviour of 20 specific cases. After that, they will be cleaned in the same way, deleting variables with NA values, Near Zero Variance, and not relevant with the objective. The training dataset will be splited in two subsets to facilitate cross-validation: training and testing data sets. All models will be tested in this testing dataset, and the best of all, will be used to predict the behaviour of cases of the test dataset provided for the exercise. A graphic comparison will be done with clusters got from the data in both datasets. In all models accuracy will be measured comparing their results with variable "class" of the subset(training). To evaluate accuracy in the test dataset, 20 randomly cases will be selected from the training dataset, and their respective "classe" values will be used to compare the predictive results in the Test dataset (as a second process of cross-validation), given that, this data did not have included the "class"" of the subjects. 
+
+### Development
+
+```{r setup, cache = F, echo = F, message = F, warning = F, tidy = F}
+# make this an external chunk that can be included in any file
+library(knitr); library(caret); library("quantmod"); ## library(dplyr)  
+library(randomForest); library(kernlab); 
+## install.packages("ade4");
+library(ade4); library(gridExtra)
+options(width = 100)
+opts_chunk$set(message = F, error = F, warning = F, comment = NA, fig.align = 'center', dpi = 100, tidy = F, cache.path = '.cache/', fig.path = 'fig/')
+
+options(xtable.type = 'html')
+knit_hooks$set(inline = function(x) {
+  if(is.numeric(x)) {
+    round(x, getOption('digits'))
+  } else {
+    paste(as.character(x), collapse = ', ')
+  }
+})
+knit_hooks$set(plot = knitr:::hook_plot_html)
+
+```
+
+#### Getting the databases
+
+```{r databases, echo = T}
+
+       training <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"), header = TRUE, sep=",", na.strings=c("NA","#DIV/0!",""))
+        test <- read.table(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"), sep = ",", header = TRUE, na.strings=c("NA","#DIV/0!",""))       
+       
+```
+
+#### Cleaning and deleting Near Zero Variance, NA and non relevant variables
+
+```{r, cleaning, echo = T}
+
+        ## library(lubridate)
+       dimension1 <- data.frame(cbind(dim(training), dim(test)))
+        colnames(dimension1) <- c("initial dim training", "initial dim testing")
+        rownames(dimension1) <- c("rows", "columns")
+        dimension1
+        
+        
+          ## deleting columns with NA values
+        training <- training[,colSums(is.na(training)) == 0]
+        test <- test[,colSums(is.na(test)) == 0]
+        
+         ## removing near zero covariance variables 
+        nsv <- nearZeroVar(training,saveMetrics=TRUE)
+       
+        ## removing first 5 variables, that include new window that it is a noon zero variance variable
+        training <- training[,-c(1:6)]
+        test <- test[,-c(1:6)]
+        
+        ## dimensions after cleaning
+         dimension2 <- data.frame(cbind(dim(training), dim(test)))
+        colnames(dimension2) <- c("after dim training", "after dim testing")
+        rownames(dimension2) <- c("rows", "columns")
+        dimension2
+        
+```
+
+
+#### Subsetting a database from the training dataset to test and cross-validate initial findings. Test database will be used to final validation
+        
+```{r subsetting, echo = T}
+        
+        set.seed(1234)
+        inTrain <- createDataPartition(y=training$classe, p=0.7, list=FALSE)
+        training1 = training[inTrain,] 
+        testing1 = training[-inTrain,]  ## from the training database
+   
+        dimension3 <- data.frame(cbind(dim(training1), dim(testing1)))
+        colnames(dimension3) <- c("subset(training)", "subset(testing)")
+        rownames(dimension3) <- c("rows", "columns")
+        dimension3
+```
+   
+
+#### Looking for the best model
+
+```{r looking, echo = T}
+      
+        modFit.rpart <- train(classe ~., method = "rpart",data=training1)
+        modFit.rf <-  train(classe ~., method = "rf",data=training1)
+        modFit.gbm <-  train(classe ~., method = "gbm",data=training1, verbose = FALSE)
+        modFit.lda <- train(classe ~., method = "lda",data=training1)
+        
+        predict.rpart <- predict(modFit.rpart, testing1)
+        predict.rf <- predict(modFit.rf, testing1, type = "raw")
+        predict.gbm <- predict(modFit.gbm, testing1)
+        predict.lda <-  predict(modFit.lda, testing1)
+        
+        y <- testing1$classe
+        accuracies <- data.frame(cbind(postResample(predict.rpart, y), 
+        postResample(predict.rf, y),
+        postResample(predict.gbm, y),
+        postResample(predict.lda, y)))
+        colnames(accuracies) <- c("RPART model", "RF model", "GBM model", "LDA model")
+        accuracies
+```
+
+
+The bests models are Random Forest and Gradient Boosting Nachine (GBM). However, Random Forest is less time-consuming, and this model is seleted then, to be cross-validated in the Test dataset. 
+
+#### Characteristics of the selected model
+
+```{r, characteristics, echo = T}
+
+        modFit.rf$finalModel
+        importance <- data.frame(round(importance(modFit.rf$finalModel, 2), 2))
+        importance
+```
+
+The most important variables in the model are num_window, roll belt and pitch forearm
+
+
+#### Plotting prediction and clustering results against original class variable
+
+```{r clustering, echo = T, warning= FALSE}
+
+        ## library(kernlab); library(ade4)
+        
+        training1s <- subset(training1, select=-c(54))
+        
+        kmeans1 <- kmeans(na.omit(training1s),centers=5)
+        kmeansRes<-factor(kmeans1$cluster)
+        
+ 
+        combined <- data.frame(cbind(predicted=predict.rf, class=y, clustered=kmeans1$cluster))     
+       
+        testing1s <- subset(testing1, select=-c(54))
+        kmeans2 <- kmeans(na.omit(testing1s),centers=5)
+        kmeansRes2<-factor(kmeans2$cluster)
+        
+         
+        combined <- data.frame(cbind(predicted=predict.rf, class=y, clustered=kmeans1$cluster))   
+        plot.new()
+        par(mfrow = c(3,1)); 
+       
+        plot(training1$num_window, training1$roll_belt, col=training1$classe)
+        plot(combined, main="Random Forest model, original and clustered classes, training subset")
+        
+        plot(combined, main="Random Forest model, original and clustered classes, testing subset")
+        
+```
+
+In the Figure is evident that Cluster analysis could not identify as good as Random Forest does, the classes of subjects. 
+
+
+
+#### Prediction of Cases in the data, and accuracy of the Random Forest model, using 20 classes selected randomly from the training dataset. 
+
+
+```{r prediction, echo = T}
+
+        set.seed(123) ## selecting a sample of 20 classes from the training dataset
+        
+        training20 <- dplyr::sample_n(training, 20)
+        y <- training20$classe
+        
+        predict.rparttest <- predict(modFit.rpart, test)
+        predict.rftest <- predict(modFit.rf, test, type = "raw")
+        predict.gbmtest <- predict(modFit.gbm, test)
+        predcit.ldatest <-  predict(modFit.lda, test)
+        
+        
+        accuracies1 <- data.frame(cbind(postResample(predict.rparttest, y),
+        postResample(predict.rftest, y),
+        postResample(predict.gbmtest, y),
+        postResample(predcit.ldatest, y)))
+        colnames(accuracies1) <- c("RPART model", "RF model", "GBM model", "LDA model")
+        accuracies1
+```
+
+
+Accuracies are extremely low in this final dataset. It could be explained, because the "classe" variable of these data, was build from a randaom sample of 20 data, from training dataset. However, Random Forest keep being the best of all models. 
+
+
+
+#### Cross-vallidation with the Test dataset, and prediction of the 20 cases
+
+```{r test dataset, echo = T}
+       
+        kmeans2 <- kmeans(testing1s,centers=5)
+        kmeansRes2<-factor(kmeans2$cluster)
+        plot.new()
+         par(mfrow = c(1,1))
+       
+         
+        combined <- data.frame(cbind(predicted=predict.rftest, class=y, clustered=kmeans2$cluster))     
+        plot(combined, main="Random Forest model, original and clustered classes, Test dataset")
+
+```
+
+
+Prediction is not as good as it was in the training dataset, using the Test Dataset
+
+With the results of this predictive random forest analysis, the quiz of 20 cases was answered. 
+
+
+#### Acknowledgments. 
+
+To the developers of the original research  available (here)[http://groupware.les.inf.puc-rio.br/har], in the section on the "Weight Lifting Exercise Dataset"
+
+
+
+
+
+
+
+----
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
